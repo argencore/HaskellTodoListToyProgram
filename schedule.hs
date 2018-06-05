@@ -44,7 +44,7 @@ convertTasksToUTCTasks [ScheduleTask description start end] = [(ScheduleUTCTask 
 convertTasksToUTCTasks ((ScheduleTask description start end): xs) = (ScheduleUTCTask description (integerToUTC start) (integerToUTC end)) : convertTasksToUTCTasks xs
 
 -- main menu line with options
-mainMenuLine = "Option Menu:\nPress 1 to add an Item to your list\nPress 2 to remove an Item from your list\nPress 3 to print the list to a txt file\nPress 4 to look at current list\nPress 5 exit the program\nOVERDUE LIST:"
+mainMenuLine = "Option Menu:\nPress 1 to add an Item to your list\nPress 2 to remove an Item from your list\nPress 3 to print the list to a txt file\nPress 4 to look at current list\nPress 5 to get current time in UTC\nPress 6 to exit\nOVERDUE LIST:"
 
 -- tell if task is overdue
 overdueTask :: Task -> IO Bool
@@ -61,6 +61,10 @@ removeTask :: Task -> [Task] -> [Task]
 removeTask a (x:xs) | a == x = removeTask a xs
                     | otherwise = x : removeTask a xs
 
+taskOverlapCheck :: Task -> [Task] -> Bool
+taskOverlapCheck task [] = False
+taskOverlapCheck task (t:tasks) | (taskStartTime task >= taskStartTime t && taskStartTime task <= taskEndTime t) || (taskEndTime task >= taskStartTime t && taskEndTime task <= taskEndTime t) || (taskEndTime task >= taskEndTime t && taskStartTime task <= taskStartTime t) = True
+                                | otherwise = taskOverlapCheck task tasks
 -- check for overdue tasks and report them
 checkTasks :: [Task] -> IO()
 checkTasks tasks = do
@@ -109,8 +113,12 @@ mainLoop tasks = do
        let endPosix = (round (utcTimeToPOSIXSeconds (localTimeToUTC timeZone eTime))) :: Integer
        -- create then add task
        let newTask = ScheduleTask (description)(startPosix)(endPosix)
-       let newTasks = newTask : tasks
-       mainLoop newTasks
+       if taskOverlapCheck newTask tasks then do
+        print "CANNOT CREATE EVENT: you have an event in that time slot already"
+        mainLoop tasks
+       else do
+        let newTasks = newTask : tasks
+        mainLoop newTasks
    -- handle task removal
    else if (userInput) == "2" then do
        putStrLn "please write the descrption of the task exactly and then press enter"
@@ -144,7 +152,11 @@ mainLoop tasks = do
     print "LIST OF TASKS:"
     mapM_ print utc
     mainLoop tasks
-   else if (userInput) == "5" then putStrLn "Exiting"
+   else if (userInput) == "5" then do
+    time <- getCurrentTime
+    print time
+    mainLoop tasks
+   else if (userInput) == "6" then putStrLn "Exiting"
    else mainLoop tasks
  
 main :: IO()
