@@ -58,6 +58,9 @@ addTask a b = a:b
 
 -- remove task from list
 removeTask :: Task -> [Task] -> [Task]
+removeTask a [] = []
+removeTask a [x] | a == x = []
+                 | otherwise = [x]
 removeTask a (x:xs) | a == x = removeTask a xs
                     | otherwise = x : removeTask a xs
 
@@ -84,12 +87,12 @@ mainLoop :: [Task] -> IO()
 mainLoop tasks = do
  putStrLn mainMenuLine
  -- create new thread for checking list constantly
- forkIO $ do
+ tChecker <- forkIO $ do
   checkTasks tasks
  -- create new channel for listening async
  input <- newChan:: IO (Chan String)
  -- create thread to handle input
- forkIO $ do
+ uInput <- forkIO $ do
    userInput <- getLine
    writeChan input userInput
  -- handle output
@@ -99,9 +102,9 @@ mainLoop tasks = do
    if (userInput) == "1" then do
        putStrLn "please write the descrption of the task and then press enter"
        description <- getLine
-       putStrLn "please enter the task start time exactly as follows day month year time AM/PM (ex. 26 Jan 2012 10:54 AM) and then press enter"
+       putStrLn "please enter the task start time exactly as follows:\n day month year time AM/PM (ex. 26 Jan 2012 10:54 AM) day with TWO digits and in LOCALTIME and then press enter"
        startTime <- getLine
-       putStrLn "please enter the end time exactly as follows day month year time AM/PM (ex. 26 Jan 2012 10:54 AM) and then press enter"
+       putStrLn "please enter the end time exactly as follows day:\n month year time AM/PM (ex. 26 Jan 2012 10:54 AM) day with TWO digits and in LOCALTIME and then press enter"
        endTime <- getLine
        -- get time zone
        timeZone <- getCurrentTimeZone
@@ -115,26 +118,35 @@ mainLoop tasks = do
        let newTask = ScheduleTask (description)(startPosix)(endPosix)
        if taskOverlapCheck newTask tasks then do
         print "CANNOT CREATE EVENT: you have an event in that time slot already"
+        -- kill current instances of input and checker thread before recursion restarts them
+        killThread(uInput)
+        killThread(tChecker)
         mainLoop tasks
        else do
         let newTasks = newTask : tasks
+        -- kill current instances of input and checker thread before recursion restarts them
+        killThread(uInput)
+        killThread(tChecker)
         mainLoop newTasks
    -- handle task removal
    else if (userInput) == "2" then do
        putStrLn "please write the descrption of the task exactly and then press enter"
        description <- getLine
-       putStrLn "please enter the task start time exactly as follows:\n day month year time AM/PM (ex. 26 Jan 2012 10:54 AM) and then press enter"
+       putStrLn "please enter the task start time exactly as follows:\n day month year time AM/PM (ex. 26 Jan 2012 10:54 AM) day with TWO digits and in UTCTIME format as displayed but with 12hr/AM/PM and then press enter"
        startTime <- getLine
-       putStrLn "please enter the end time exactly as follows:\n day month year time AM/PM (ex. 26 Jan 2012 10:54 AM) and then press enter"
+       putStrLn "please enter the end time exactly as follows:\n day month year time AM/PM (ex. 26 Jan 2012 10:54 AM) day with TWO digits and in UTCTIME as displayed but with 12hr/AM/PM and then press enter"
        endTime <- getLine
        timeZone <- getCurrentTimeZone
        -- take the same steps as for creating a task
-       let sTime = readTime defaultTimeLocale "%d %b %Y %l:%M %p" startTime :: LocalTime
-       let eTime = readTime defaultTimeLocale "%d %b %Y %l:%M %p" endTime :: LocalTime
-       let startPosix = (round (utcTimeToPOSIXSeconds (localTimeToUTC timeZone sTime))) :: Integer
-       let endPosix = (round (utcTimeToPOSIXSeconds (localTimeToUTC timeZone eTime))) :: Integer
+       let sTime = readTime defaultTimeLocale "%d %b %Y %l:%M %p" startTime :: UTCTime
+       let eTime = readTime defaultTimeLocale "%d %b %Y %l:%M %p" endTime :: UTCTime
+       let startPosix = (round (utcTimeToPOSIXSeconds (sTime))) :: Integer
+       let endPosix = (round (utcTimeToPOSIXSeconds (eTime))) :: Integer
        let newTask = ScheduleTask (description)(startPosix)(endPosix)
        -- recurse on the list minus the task to remove
+       -- kill current instances of input and checker thread before recursion restarts them
+       killThread(uInput)
+       killThread(tChecker)
        mainLoop (removeTask newTask tasks)
    -- handle writing to a file
    else if (userInput) == "3" then do
@@ -145,16 +157,25 @@ mainLoop tasks = do
     -- print one per line
     mapM_ (hPrint file) utc
     hClose file
+    -- kill current instances of input and checker thread before recursion restarts them
+    killThread(uInput)
+    killThread(tChecker)
     mainLoop tasks
   -- handle print to screen
    else if (userInput) == "4" then do
     let utc = convertTasksToUTCTasks tasks
     print "LIST OF TASKS:"
     mapM_ print utc
+    -- kill current instances of input and checker thread before recursion restarts them
+    killThread(uInput)
+    killThread(tChecker)
     mainLoop tasks
    else if (userInput) == "5" then do
     time <- getCurrentTime
     print time
+    -- kill current instances of input and checker thread before recursion restarts them
+    killThread(uInput)
+    killThread(tChecker)
     mainLoop tasks
    else if (userInput) == "6" then putStrLn "Exiting"
    else mainLoop tasks
